@@ -27,10 +27,9 @@ build-release:
 # Build the BPF counter program
 build-bpf:
     @echo "🔨 Building BPF counter program..."
-    cd examples/counter-program && \
-    cargo build --target bpfel-unknown-unknown --release
+    cd examples/counter-program && cargo build --target sbf-solana-solana --release
     @echo "✓ BPF program built"
-    @echo "   Output: examples/counter-program/target/bpfel-unknown-unknown/release/counter_program.so"
+    @echo "   Output: examples/counter-program/target/sbf-solana-solana/release/counter_program.so"
 
 # Run all tests
 test:
@@ -88,9 +87,9 @@ check: fmt-check clippy test build
 # Setup development environment
 setup: init
     @echo "🚀 Setting up development environment..."
-    rustup target add bpfel-unknown-unknown
     rustup component add rustfmt clippy
     @echo "✓ Development environment ready"
+    @echo "Note: BPF compilation requires Solana toolchain (configured via rust-toolchain.toml in counter-program/)"
 
 # Show project statistics
 stats:

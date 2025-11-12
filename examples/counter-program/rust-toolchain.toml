@@ -1,0 +1,3 @@
+[toolchain]
+channel = "solana"
+# Use Solana's custom Rust toolchain which includes BPF targets
