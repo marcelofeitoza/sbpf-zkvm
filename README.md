@@ -81,16 +81,18 @@ just setup
 ### Build
 
 ```bash
+# Initialize git submodules (required first time)
+git submodule update --init --recursive
+# Or use just
+just init
+
 # Build all workspace crates
 cargo build --workspace
 
 # Or use just
 just build
 
-# Build the BPF counter program
-cargo build -p counter-program --target bpfel-unknown-unknown --release
-
-# Or use just
+# Build the BPF counter program (uses Solana toolchain via rust-toolchain.toml)
 just build-bpf
 ```
 
@@ -187,7 +189,11 @@ just stats           # Show project statistics
 cargo build -p bpf-tracer
 cargo build -p zk-circuits
 cargo build -p prover
-cargo build -p counter-program --target bpfel-unknown-unknown --release
+
+# Build counter-program (must be done from its directory due to Solana toolchain)
+cd examples/counter-program && cargo build --target sbf-solana-solana --release
+# Or use just from root
+just build-bpf
 ```
 
 ### Testing
@@ -211,9 +217,12 @@ cargo test --workspace -- --nocapture
 - [x] Git submodules (sbpf, halo2-lib)
 - [x] Trace data structures
 - [x] Counter program (no_std BPF)
+- [x] BPF build toolchain (Solana toolchain with sbf-solana-solana target)
+- [x] Counter program BPF binary (1408 bytes)
+- [x] Integration tests for counter program
 - [x] High-level prover API
 - [x] End-to-end demo skeleton
-- [x] Build automation
+- [x] Build automation (justfile with working build-bpf recipe)
 
 ### 🚧 In Progress (Stub Implementations)
 
