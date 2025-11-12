@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(bd)",
+      "Bash(bd version:*)",
+      "Bash(bd:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git submodule add:*)",
+      "Bash(cargo check:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

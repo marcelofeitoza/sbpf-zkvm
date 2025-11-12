@@ -1,0 +1,27 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# BPF build artifacts
+*.so
+*.o
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Beads database (keep JSONL for version control)
+.beads/*.db
+.beads/*.db-*

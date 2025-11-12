@@ -1,0 +1,5 @@
+[toolchain]
+channel = "nightly-2024-08-01"
+components = ["rustfmt", "clippy"]
+# Note: bpfel-unknown-unknown target may need to be added separately
+# targets = ["bpfel-unknown-unknown"]

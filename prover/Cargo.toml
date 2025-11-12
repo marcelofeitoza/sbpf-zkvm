@@ -1,0 +1,20 @@
+[package]
+name = "prover"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+bpf-tracer = { path = "../bpf-tracer" }
+zk-circuits = { path = "../zk-circuits" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }

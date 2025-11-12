@@ -1,0 +1,26 @@
+[package]
+name = "counter-program"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+# No dependencies - pure no_std implementation
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+overflow-checks = true
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
+
+[package.metadata.bpf]
+# BPF-specific metadata
+entry = "entrypoint"

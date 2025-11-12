@@ -1,0 +1,6 @@
+[submodule "deps/sbpf"]
+	path = deps/sbpf
+	url = https://github.com/anza-xyz/sbpf
+[submodule "deps/halo2-lib"]
+	path = deps/halo2-lib
+	url = https://github.com/axiom-crypto/halo2-lib
