@@ -5,8 +5,11 @@
 
 pub mod public_inputs;
 pub mod witness;
+pub mod keygen;
 
 pub use public_inputs::PublicInputs;
+pub use witness::Witness;
+pub use keygen::{KeygenConfig, KeyPair};
 use bpf_tracer::ExecutionTrace;
 use zk_circuits::CounterCircuit;
 
@@ -24,10 +27,18 @@ pub fn generate_witness(trace: &ExecutionTrace) -> Result<Vec<u8>> {
     tracing::info!("Generating witness from trace with {} instructions",
                    trace.instruction_count());
 
-    // TODO: Implement witness generation
-    // For now, return trace as serialized witness
-    let witness = serde_json::to_vec(trace)?;
-    Ok(witness)
+    // Create structured witness from trace
+    let witness = Witness::from_trace(trace)?;
+
+    tracing::debug!(
+        "Witness generated: {} instructions, {} memory ops, {} register states",
+        witness.instruction_count(),
+        witness.memory_op_count(),
+        witness.instruction_register_states.len()
+    );
+
+    // Serialize to bytes for proof generation
+    witness.to_bytes()
 }
 
 /// Create a ZK proof from witness data
