@@ -242,9 +242,38 @@ cargo test --workspace -- --nocapture
 - [ ] Benchmarking infrastructure
 - [ ] Fuzzing and property tests
 
+## Performance Features
+
+### Parallel Proving
+
+The zkVM supports parallel proof generation for improved performance on multi-core systems:
+
+```rust
+use prover::{prove_execution_chunked_parallel, KeygenConfig};
+
+// Prove chunks in parallel (4-8× faster on typical systems)
+let chunk_proofs = prove_execution_chunked_parallel(trace, &config)?;
+```
+
+**Features**:
+- Automatic multi-core utilization via Rayon
+- Near-linear speedup with CPU cores (4-8× typical)
+- Thread-safe key sharing (no extra copies)
+- Control parallelism via `RAYON_NUM_THREADS` env var
+
+**When to use**:
+- **Parallel**: Large traces (>10 chunks), multi-core CPU, memory available
+- **Sequential**: Small traces (<5 chunks), memory constrained systems
+
+For details, see [docs/PARALLEL_PROVING.md](docs/PARALLEL_PROVING.md).
+
 ## Documentation
 
 - [DESIGN.md](docs/DESIGN.md) - Detailed architecture and design decisions
+- [RECURSIVE_PROVING.md](docs/RECURSIVE_PROVING.md) - Chunking architecture
+- [PARALLEL_PROVING.md](docs/PARALLEL_PROVING.md) - Parallel proving guide
+- [PHASE1_COMPLETE.md](docs/PHASE1_COMPLETE.md) - Phase 1 completion summary
+- [PHASE2_ROADMAP.md](docs/PHASE2_ROADMAP.md) - Future aggregation plans
 - [API Documentation](https://docs.rs) - Run `cargo doc --open` to view
 
 ## Dependencies

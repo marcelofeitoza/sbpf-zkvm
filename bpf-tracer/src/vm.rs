@@ -3,6 +3,7 @@
 //! This module wraps solana-sbpf to capture complete execution traces.
 
 use crate::trace::*;
+use crate::transaction::TransactionContext;
 use crate::Result;
 use solana_sbpf::{
     aligned_memory::AlignedMemory,
@@ -16,9 +17,9 @@ use std::sync::Arc;
 
 /// Simple context object for instruction counting
 #[derive(Debug, Clone)]
-struct TracerContext {
+pub struct TracerContext {
     /// Remaining instructions allowed
-    remaining: u64,
+    pub remaining: u64,
 }
 
 impl ContextObject for TracerContext {
@@ -32,7 +33,7 @@ impl ContextObject for TracerContext {
 }
 
 impl TracerContext {
-    fn new(remaining: u64) -> Self {
+    pub fn new(remaining: u64) -> Self {
         Self { remaining }
     }
 }
@@ -56,8 +57,11 @@ pub fn trace_program(bytecode: &[u8]) -> Result<ExecutionTrace> {
     config.enable_instruction_meter = true;
     config.enable_register_tracing = true;
 
-    // Create loader with default builtin functions
-    let loader = Arc::new(BuiltinProgram::new_loader(config.clone()));
+    // Create loader with default builtin functions and register Solana syscalls
+    let mut loader = BuiltinProgram::new_loader(config.clone());
+    crate::syscalls::register_syscalls(&mut loader)
+        .map_err(|e| anyhow::anyhow!("Failed to register syscalls: {:?}", e))?;
+    let loader = Arc::new(loader);
 
     // Load the BPF program as raw text bytes
     let executable = Executable::from_text_bytes(
@@ -187,7 +191,226 @@ pub fn trace_program(bytecode: &[u8]) -> Result<ExecutionTrace> {
 
     match result {
         ProgramResult::Ok(_) => Ok(trace),
-        ProgramResult::Err(err) => Err(anyhow::anyhow!("Program execution failed: {:?}", err)),
+        ProgramResult::Err(err) => {
+            tracing::error!("Program execution failed with error: {:?}", err);
+            tracing::error!("Instruction count before failure: {}", instruction_count);
+            Err(anyhow::anyhow!("Program execution failed: {:?}", err))
+        }
+    }
+}
+
+/// Trace the execution of a BPF program with Solana account context
+///
+/// Takes raw BPF bytecode and a transaction context with accounts, executes
+/// the program with proper account serialization, and captures account state changes.
+///
+/// # Arguments
+/// * `bytecode` - Raw BPF program bytecode (or ELF)
+/// * `context` - Transaction context with accounts and instruction data
+///
+/// # Returns
+/// * `Ok(ExecutionTrace)` - Complete trace including account state changes
+/// * `Err(_)` - If program loading, execution, or account handling fails
+pub fn trace_program_with_accounts(
+    bytecode: &[u8],
+    context: &mut TransactionContext,
+) -> Result<ExecutionTrace> {
+    tracing::info!(
+        "Starting BPF program trace with {} accounts, bytecode size: {} bytes",
+        context.accounts.len(),
+        bytecode.len()
+    );
+
+    // Snapshot account states before execution
+    let accounts_before = context.snapshot_accounts();
+
+    // Serialize accounts and instruction data for the program
+    let input_data = context.serialize()?;
+
+    // Create VM configuration
+    let mut config = Config::default();
+    config.enable_instruction_meter = true;
+    config.enable_register_tracing = true;
+
+    // Create loader with default builtin functions and register Solana syscalls
+    let mut loader = BuiltinProgram::new_loader(config.clone());
+    crate::syscalls::register_syscalls(&mut loader)
+        .map_err(|e| anyhow::anyhow!("Failed to register syscalls: {:?}", e))?;
+    let loader = Arc::new(loader);
+
+    // Load the BPF program (try ELF first, fall back to text bytes)
+    let executable = if bytecode.starts_with(b"\x7fELF") {
+        // ELF file
+        Executable::from_elf(bytecode, loader.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to load ELF program: {:?}", e))?
+    } else {
+        // Raw bytecode
+        Executable::from_text_bytes(
+            bytecode,
+            loader.clone(),
+            SBPFVersion::V2,
+            FunctionRegistry::default(),
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to load BPF program: {:?}", e))?
+    };
+
+    // Verify the executable
+    executable
+        .verify::<solana_sbpf::verifier::RequisiteVerifier>()
+        .map_err(|e| anyhow::anyhow!("Failed to verify executable: {:?}", e))?;
+
+    // Set up memory regions with account data
+    let mut stack = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(config.stack_size());
+    let heap_size = 256 * 1024; // 256KB heap
+    let mut heap = AlignedMemory::<{ ebpf::HOST_ALIGN }>::zero_filled(heap_size);
+
+    // Allocate input buffer for account data
+    let mut input_buffer =
+        AlignedMemory::<{ ebpf::HOST_ALIGN }>::from_slice(&input_data);
+
+    // Create memory mapping
+    let vm_gap_size = if config.enable_stack_frame_gaps {
+        config.stack_frame_size as u64
+    } else {
+        0
+    };
+
+    let regions: Vec<MemoryRegion> = vec![
+        executable.get_ro_region(),
+        MemoryRegion::new_writable_gapped(
+            stack.as_slice_mut(),
+            ebpf::MM_STACK_START,
+            vm_gap_size,
+        ),
+        MemoryRegion::new_writable(heap.as_slice_mut(), ebpf::MM_HEAP_START),
+        MemoryRegion::new_writable(input_buffer.as_slice_mut(), ebpf::MM_INPUT_START),
+    ];
+
+    let memory_mapping = MemoryMapping::new(regions, &config, executable.get_sbpf_version())
+        .map_err(|e| anyhow::anyhow!("Failed to create memory mapping: {:?}", e))?;
+
+    // Create context object with instruction limit
+    let mut tracer_context = TracerContext::new(1_000_000);
+
+    // Create VM
+    let mut vm = EbpfVm::new(
+        loader,
+        executable.get_sbpf_version(),
+        &mut tracer_context,
+        memory_mapping,
+        config.stack_size(),
+    );
+
+    // Set r1 to point to input data (MM_INPUT_START)
+    vm.registers[1] = ebpf::MM_INPUT_START;
+
+    // Capture initial register state
+    let initial_registers = RegisterState::from_regs(vm.registers);
+
+    // Execute program in interpreter mode for tracing
+    let (instruction_count, result) = vm.execute_program(&executable, true);
+
+    // Capture final register state after execution
+    let mut final_registers = RegisterState::from_regs(vm.registers);
+
+    // The return value (r0) is stored in the result
+    if let ProgramResult::Ok(return_value) = result {
+        final_registers.regs[0] = return_value;
+    }
+
+    tracing::info!(
+        "Program executed {} instructions, result: {:?}",
+        instruction_count,
+        result
+    );
+
+    // Deserialize account data after execution to capture changes
+    context.deserialize_accounts(input_buffer.as_slice())?;
+
+    // Snapshot account states after execution
+    let accounts_after = context.snapshot_accounts();
+
+    // Build execution trace
+    let mut trace = ExecutionTrace::new();
+    trace.initial_registers = initial_registers.clone();
+    trace.final_registers = final_registers.clone();
+
+    // Capture instruction-level traces from VM register trace
+    if config.enable_register_tracing {
+        tracing::debug!("Captured {} instruction traces", vm.register_trace.len());
+
+        // Get the program bytes to extract instruction data
+        let (_program_vm_addr, program_bytes) = executable.get_text_bytes();
+
+        for (idx, registers) in vm.register_trace.iter().enumerate() {
+            let pc = registers[11];
+
+            // Calculate instruction offset in the program
+            let insn_offset = (pc as usize).saturating_mul(ebpf::INSN_SIZE);
+
+            // Extract instruction bytes (8 bytes per BPF instruction)
+            let instruction_bytes = if insn_offset + ebpf::INSN_SIZE <= program_bytes.len() {
+                program_bytes[insn_offset..insn_offset + ebpf::INSN_SIZE].to_vec()
+            } else {
+                vec![0; ebpf::INSN_SIZE]
+            };
+
+            // The register_trace entries are the state BEFORE executing the instruction at that PC
+            let registers_before = RegisterState::from_regs(*registers);
+
+            // Get register state after this instruction
+            // Look at the next trace entry or use final registers
+            let registers_after = if idx + 1 < vm.register_trace.len() {
+                RegisterState::from_regs(vm.register_trace[idx + 1])
+            } else {
+                // Last instruction - use final registers
+                final_registers.clone()
+            };
+
+            trace.instructions.push(InstructionTrace {
+                pc,
+                instruction_bytes,
+                registers_before,
+                registers_after,
+            });
+        }
+    }
+
+    // Capture account state changes
+    for (before, after) in accounts_before.iter().zip(accounts_after.iter()) {
+        if before != after {
+            trace.account_states.push(AccountStateChange::new(
+                before.pubkey,
+                before.clone(),
+                after.clone(),
+            ));
+        }
+    }
+
+    tracing::info!(
+        "Captured {} account state changes",
+        trace.account_states.len()
+    );
+
+    match result {
+        ProgramResult::Ok(_) => Ok(trace),
+        ProgramResult::Err(err) => {
+            tracing::error!("Program execution failed with error: {:?}", err);
+            tracing::error!("Instruction count before failure: {}", instruction_count);
+            tracing::error!("PC at failure: {}", vm.registers[11]);
+            tracing::error!("Registers at failure: {:?}", vm.registers);
+
+            // Log last few instructions executed
+            if !vm.register_trace.is_empty() {
+                let num_to_show = std::cmp::min(5, vm.register_trace.len());
+                tracing::error!("Last {} instructions executed:", num_to_show);
+                for (i, regs) in vm.register_trace.iter().rev().take(num_to_show).enumerate() {
+                    tracing::error!("  -{}: PC={}", i, regs[11]);
+                }
+            }
+
+            Err(anyhow::anyhow!("Program execution failed: {:?}", err))
+        }
     }
 }
 

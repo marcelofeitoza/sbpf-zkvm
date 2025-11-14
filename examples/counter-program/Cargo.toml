@@ -9,7 +9,8 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-# No dependencies - pure no_std implementation
+solana-program = "1.18"
+borsh = "0.10"
 
 [profile.release]
 opt-level = 3

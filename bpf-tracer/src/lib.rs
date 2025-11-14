@@ -34,13 +34,16 @@
 //!   instrumentation API. The `memory_ops` field in `ExecutionTrace` will be empty.
 //! * Programs must be valid BPF bytecode or ELF format supported by solana-sbpf.
 
+pub mod syscalls;
 pub mod trace;
+pub mod transaction;
 pub mod vm;
 
 pub use trace::{
     AccountState, AccountStateChange, ExecutionTrace, InstructionTrace, RegisterState,
 };
-pub use vm::trace_program;
+pub use transaction::TransactionContext;
+pub use vm::{trace_program, trace_program_with_accounts, TracerContext};
 
 /// Result type for BPF tracer operations
 pub type Result<T> = anyhow::Result<T>;

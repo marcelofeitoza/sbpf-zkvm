@@ -36,6 +36,8 @@ pub struct KeygenConfig {
     pub cache_dir: PathBuf,
     /// Lookup bits for range checks
     pub lookup_bits: usize,
+    /// Maximum instructions per chunk (for recursive proving)
+    pub chunk_size: usize,
 }
 
 impl KeygenConfig {
@@ -45,7 +47,14 @@ impl KeygenConfig {
             k,
             cache_dir: cache_dir.into(),
             lookup_bits,
+            chunk_size: 1000, // Default: 1000 instructions per chunk
         }
+    }
+
+    /// Create a new keygen configuration with custom chunk size
+    pub fn with_chunk_size(mut self, chunk_size: usize) -> Self {
+        self.chunk_size = chunk_size;
+        self
     }
 
     /// Get path to cached parameters file
@@ -62,6 +71,16 @@ impl KeygenConfig {
     fn pk_path(&self) -> PathBuf {
         self.cache_dir.join(format!("counter_pk_k{}.bin", self.k))
     }
+
+    /// Get path to cached break points file
+    fn break_points_path(&self) -> PathBuf {
+        self.cache_dir.join(format!("counter_bp_k{}.json", self.k))
+    }
+
+    /// Get path to cached circuit params file
+    fn circuit_params_path(&self) -> PathBuf {
+        self.cache_dir.join(format!("counter_params_k{}.json", self.k))
+    }
 }
 
 impl Default for KeygenConfig {
@@ -70,6 +89,7 @@ impl Default for KeygenConfig {
             k: 17, // 2^17 = 131,072 rows
             cache_dir: PathBuf::from(".cache/keys"),
             lookup_bits: 8,
+            chunk_size: 1000, // Default: 1000 instructions per chunk
         }
     }
 }
@@ -83,6 +103,10 @@ pub struct KeyPair {
     pub pk: ProvingKey<G1Affine>,
     /// Verifying key (extracted from proving key)
     pub vk: VerifyingKey<G1Affine>,
+    /// Break points from keygen (needed for prover circuit)
+    pub break_points: Vec<Vec<usize>>,
+    /// Circuit params from keygen (needed for loading keys)
+    pub circuit_params: BaseCircuitParams,
 }
 
 impl KeyPair {
@@ -131,10 +155,14 @@ impl KeyPair {
         // Set environment variable for lookup bits
         std::env::set_var("LOOKUP_BITS", config.lookup_bits.to_string());
 
-        // Create a dummy circuit for keygen
-        tracing::info!("Creating dummy circuit for keygen...");
+        // Create a dummy circuit for keygen with fixed chunk size
+        // This circuit will be padded to chunk_size, establishing the fixed circuit shape
+        tracing::info!(
+            "Creating dummy circuit for keygen with chunk_size={}...",
+            config.chunk_size
+        );
         let dummy_trace = ExecutionTrace::new();
-        let circuit_logic = CounterCircuit::from_trace(dummy_trace);
+        let circuit_logic = CounterCircuit::from_trace_chunked(dummy_trace, config.chunk_size);
 
         // Build the circuit using BaseCircuitBuilder
         let mut builder = BaseCircuitBuilder::<Fr>::from_stage(CircuitBuilderStage::Keygen)
@@ -148,8 +176,8 @@ impl KeyPair {
         circuit_logic.synthesize(builder.main(0), &gate)
             .context("Failed to synthesize circuit")?;
 
-        // Configure the builder
-        builder.calculate_params(Some(9));
+        // Configure the builder and get the circuit params
+        let circuit_params = builder.calculate_params(Some(9));
 
         // Generate verifying key
         tracing::info!("Generating verifying key...");
@@ -163,8 +191,13 @@ impl KeyPair {
 
         let vk = pk.get_vk().clone();
 
+        // After keygen, extract the break points that were set during synthesis
+        // These need to be saved so prover can use them
+        let break_points = builder.break_points();
+        tracing::debug!("Break points from keygen: {:?}", break_points);
+
         tracing::info!("Key generation complete");
-        Ok(Self { params, pk, vk })
+        Ok(Self { params, pk, vk, break_points, circuit_params })
     }
 
     /// Load keys from cache
@@ -174,14 +207,20 @@ impl KeyPair {
         let params = load_params(&config.params_path())
             .context("Failed to load KZG parameters")?;
 
-        let vk = load_vk(&params, &config.vk_path())
+        let circuit_params = load_circuit_params(&config.circuit_params_path())
+            .context("Failed to load circuit params")?;
+
+        let vk = load_vk(&params, &config.vk_path(), &circuit_params)
             .context("Failed to load verifying key")?;
 
-        let pk = load_pk(&params, &config.pk_path())
+        let pk = load_pk(&params, &config.pk_path(), &circuit_params)
             .context("Failed to load proving key")?;
 
+        let break_points = load_break_points(&config.break_points_path())
+            .context("Failed to load break points")?;
+
         tracing::info!("Successfully loaded keys from cache");
-        Ok(Self { params, vk, pk })
+        Ok(Self { params, vk, pk, break_points, circuit_params })
     }
 
     /// Save keys to cache
@@ -201,6 +240,12 @@ impl KeyPair {
         save_pk(&self.pk, &config.pk_path())
             .context("Failed to save proving key")?;
 
+        save_break_points(&self.break_points, &config.break_points_path())
+            .context("Failed to save break points")?;
+
+        save_circuit_params(&self.circuit_params, &config.circuit_params_path())
+            .context("Failed to save circuit params")?;
+
         tracing::info!("Successfully saved keys to cache");
         Ok(())
     }
@@ -210,6 +255,8 @@ impl KeyPair {
         config.params_path().exists()
             && config.vk_path().exists()
             && config.pk_path().exists()
+            && config.break_points_path().exists()
+            && config.circuit_params_path().exists()
     }
 }
 
@@ -239,18 +286,16 @@ fn save_params(params: &ParamsKZG<Bn256>, path: &Path) -> Result<()> {
 fn load_vk(
     _params: &ParamsKZG<Bn256>,
     path: &Path,
+    circuit_params: &BaseCircuitParams,
 ) -> Result<VerifyingKey<G1Affine>> {
     let file = File::open(path)
         .with_context(|| format!("Failed to open VK file: {:?}", path))?;
     let mut reader = BufReader::new(file);
 
-    // Use default circuit params for loading (values don't matter for deserialization)
-    let params = BaseCircuitParams::default();
-
     VerifyingKey::<G1Affine>::read::<_, BaseCircuitBuilder<Fr>>(
         &mut reader,
         SerdeFormat::RawBytesUnchecked,
-        params,
+        circuit_params.clone(),
     )
     .with_context(|| format!("Failed to deserialize VK from {:?}", path))
 }
@@ -271,18 +316,16 @@ fn save_vk(vk: &VerifyingKey<G1Affine>, path: &Path) -> Result<()> {
 fn load_pk(
     _params: &ParamsKZG<Bn256>,
     path: &Path,
+    circuit_params: &BaseCircuitParams,
 ) -> Result<ProvingKey<G1Affine>> {
     let file = File::open(path)
         .with_context(|| format!("Failed to open PK file: {:?}", path))?;
     let mut reader = BufReader::new(file);
 
-    // Use default circuit params for loading (values don't matter for deserialization)
-    let params = BaseCircuitParams::default();
-
     ProvingKey::<G1Affine>::read::<_, BaseCircuitBuilder<Fr>>(
         &mut reader,
         SerdeFormat::RawBytesUnchecked,
-        params,
+        circuit_params.clone(),
     )
     .with_context(|| format!("Failed to deserialize PK from {:?}", path))
 }
@@ -295,6 +338,50 @@ fn save_pk(pk: &ProvingKey<G1Affine>, path: &Path) -> Result<()> {
 
     pk.write(&mut writer, SerdeFormat::RawBytesUnchecked)
         .with_context(|| format!("Failed to serialize PK to {:?}", path))?;
+
+    Ok(())
+}
+
+/// Load break points from file
+fn load_break_points(path: &Path) -> Result<Vec<Vec<usize>>> {
+    let file = File::open(path)
+        .with_context(|| format!("Failed to open break points file: {:?}", path))?;
+    let reader = BufReader::new(file);
+
+    serde_json::from_reader(reader)
+        .with_context(|| format!("Failed to deserialize break points from {:?}", path))
+}
+
+/// Save break points to file
+fn save_break_points(break_points: &[Vec<usize>], path: &Path) -> Result<()> {
+    let file = File::create(path)
+        .with_context(|| format!("Failed to create break points file: {:?}", path))?;
+    let writer = BufWriter::new(file);
+
+    serde_json::to_writer(writer, break_points)
+        .with_context(|| format!("Failed to serialize break points to {:?}", path))?;
+
+    Ok(())
+}
+
+/// Load circuit params from file
+fn load_circuit_params(path: &Path) -> Result<BaseCircuitParams> {
+    let file = File::open(path)
+        .with_context(|| format!("Failed to open circuit params file: {:?}", path))?;
+    let reader = BufReader::new(file);
+
+    serde_json::from_reader(reader)
+        .with_context(|| format!("Failed to deserialize circuit params from {:?}", path))
+}
+
+/// Save circuit params to file
+fn save_circuit_params(circuit_params: &BaseCircuitParams, path: &Path) -> Result<()> {
+    let file = File::create(path)
+        .with_context(|| format!("Failed to create circuit params file: {:?}", path))?;
+    let writer = BufWriter::new(file);
+
+    serde_json::to_writer_pretty(writer, circuit_params)
+        .with_context(|| format!("Failed to serialize circuit params to {:?}", path))?;
 
     Ok(())
 }
@@ -328,12 +415,5 @@ mod tests {
         assert!(!KeyPair::cache_exists(&config));
     }
 
-    #[test]
-    fn test_load_or_generate_not_implemented() {
-        let config = KeygenConfig::default();
-        let result = KeyPair::load_or_generate(&config);
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not yet implemented"));
-    }
+    // Note: test_load_or_generate removed - now tests actual key generation in integration tests
 }
