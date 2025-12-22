@@ -4,9 +4,10 @@ members = [
     "zk-circuits",
     "prover",
 ]
-# Excluded: counter-program (BPF target only, built separately)
+# Excluded: counter-program (BPF target), wasm-prover (WASM target)
 exclude = [
     "examples/counter-program",
+    "wasm-prover",
 ]
 resolver = "2"
 
