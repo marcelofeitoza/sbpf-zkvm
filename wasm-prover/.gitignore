@@ -1,0 +1,8 @@
+# Build artifacts
+/target/
+/pkg/
+Cargo.lock
+
+# Symlinks created during dev
+www/pkg
+
