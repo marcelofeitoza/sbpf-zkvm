@@ -1,0 +1,50 @@
+[package]
+name = "privacy-pool-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Browser-based Groth16 prover for Privacy Pool"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# WASM bindings
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+
+# Groth16 proving
+ark-ff = "0.4"
+ark-ec = "0.4"
+ark-bn254 = "0.4"
+ark-groth16 = "0.4"
+ark-relations = "0.4"
+ark-r1cs-std = "0.4"
+ark-snark = "0.4"
+ark-serialize = "0.4"
+ark-std = "0.4"
+
+# Poseidon hash (ZK-friendly, collision-resistant)
+ark-crypto-primitives = { version = "0.4", features = ["r1cs", "sponge"] }
+light-poseidon = "0.2"
+
+# Randomness for WASM
+getrandom = { version = "0.2", features = ["js"] }
+rand = "0.8"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+
+# SHA256 for Merkle tree (client-side)
+sha2 = "0.10"
+
+[features]
+default = []
+
+[profile.release]
+opt-level = "z"
+lto = true
+

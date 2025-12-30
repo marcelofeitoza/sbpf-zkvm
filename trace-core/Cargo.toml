@@ -1,0 +1,16 @@
+[package]
+name = "trace-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared trace types for sbpf-zkvm (native and WASM compatible)"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+# Binary serialization - no_std compatible
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+
+

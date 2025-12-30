@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔐 Privacy Pool - Browser Prover</title>
+    <style>
+        :root {
+            --bg-dark: #0d1117;
+            --bg-card: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+        
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .card h2 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 0.25rem;
+        }
+        
+        input, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.85rem;
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        button {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        
+        button:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .btn-secondary {
+            background: var(--border);
+        }
+        
+        .output {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 1rem;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.8rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+        
+        .status.loading { background: rgba(88, 166, 255, 0.1); color: var(--accent); }
+        .status.success { background: rgba(63, 185, 80, 0.1); color: var(--success); }
+        .status.error { background: rgba(248, 81, 73, 0.1); color: var(--error); }
+        
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .stat {
+            text-align: center;
+            padding: 1rem;
+            background: var(--bg-dark);
+            border-radius: 4px;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--accent);
+        }
+        
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        footer {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔐 Privacy Pool Browser Prover</h1>
+            <p class="subtitle">Generate Groth16 proofs client-side • Your secrets never leave your browser</p>
+        </header>
+        
+        <div id="status" class="status loading">
+            <span class="spinner"></span>
+            <span>Loading WASM prover...</span>
+        </div>
+        
+        <!-- Step 1: Generate Commitment -->
+        <div class="card">
+            <h2>📝 Step 1: Generate Commitment (for Deposit)</h2>
+            <div class="row">
+                <div class="form-group">
+                    <label>Secret (32 bytes hex)</label>
+                    <input type="text" id="secret" placeholder="Random 32-byte hex..." value="">
+                </div>
+                <div class="form-group">
+                    <label>Nullifier (32 bytes hex)</label>
+                    <input type="text" id="nullifier" placeholder="Random 32-byte hex..." value="">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Amount (lamports)</label>
+                <input type="number" id="amount" value="100000000" placeholder="100000000">
+            </div>
+            <button onclick="generateRandomSecrets()">🎲 Generate Random Secrets</button>
+            <button onclick="generateCommitment()" class="btn-secondary">Generate Commitment</button>
+            
+            <div class="form-group" style="margin-top: 1rem;">
+                <label>Commitment (deposit this on-chain)</label>
+                <div class="output" id="commitment-output">Click "Generate Commitment" to create...</div>
+            </div>
+        </div>
+        
+        <!-- Step 2: Generate Withdrawal Proof -->
+        <div class="card">
+            <h2>⚡ Step 2: Generate Withdrawal Proof</h2>
+            <div class="form-group">
+                <label>Recipient Address (32 bytes hex - Solana pubkey)</label>
+                <input type="text" id="recipient" placeholder="Recipient Solana pubkey in hex...">
+            </div>
+            <button onclick="generateProof()" id="prove-btn">🔐 Generate Withdrawal Proof</button>
+            
+            <div class="form-group" style="margin-top: 1rem;">
+                <label>Proof Output</label>
+                <div class="output" id="proof-output">Click "Generate Proof" to create...</div>
+            </div>
+            
+            <div class="stats" id="stats" style="display: none;">
+                <div class="stat">
+                    <div class="stat-value" id="proof-time">-</div>
+                    <div class="stat-label">Generation Time</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="proof-size">-</div>
+                    <div class="stat-label">Proof Size</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="proof-status">-</div>
+                    <div class="stat-label">Local Verify</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Step 3: Merkle Tree -->
+        <div class="card">
+            <h2>🌳 Step 3: Build Merkle Proof</h2>
+            <div class="form-group">
+                <label>Commitments (comma-separated hex)</label>
+                <textarea id="commitments" rows="2" placeholder="commitment1,commitment2,..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Your Leaf Index</label>
+                <input type="number" id="leaf-index" value="0" min="0">
+            </div>
+            <button onclick="buildMerkleTree()">Build Tree & Get Proof</button>
+            
+            <div class="form-group" style="margin-top: 1rem;">
+                <label>Merkle Output</label>
+                <div class="output" id="merkle-output">Click "Build Tree" to create...</div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Privacy Pool WASM Prover • Groth16 on BN254 • All computation happens locally in your browser</p>
+            <p style="margin-top: 0.5rem;">⚠️ Save your secret and nullifier! You need them to withdraw.</p>
+        </footer>
+    </div>
+    
+    <script type="module">
+        import init, {
+            generate_commitment,
+            generate_withdrawal_proof,
+            build_merkle_tree,
+            get_prover_info
+        } from './pkg/privacy_pool_wasm.js';
+        
+        let wasmReady = false;
+        
+        async function initWasm() {
+            try {
+                await init();
+                wasmReady = true;
+                
+                const info = JSON.parse(get_prover_info());
+                document.getElementById('status').className = 'status success';
+                document.getElementById('status').innerHTML = `✅ ${info.name} ready (${info.proof_system} on ${info.curve})`;
+            } catch (e) {
+                document.getElementById('status').className = 'status error';
+                document.getElementById('status').innerHTML = `❌ Failed to load WASM: ${e.message}`;
+            }
+        }
+        
+        window.generateRandomSecrets = function() {
+            const randomHex = (len) => {
+                const arr = new Uint8Array(len);
+                crypto.getRandomValues(arr);
+                return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+            };
+            document.getElementById('secret').value = randomHex(32);
+            document.getElementById('nullifier').value = randomHex(32);
+        };
+        
+        window.generateCommitment = function() {
+            if (!wasmReady) return alert('WASM not ready');
+            
+            const secret = document.getElementById('secret').value;
+            const nullifier = document.getElementById('nullifier').value;
+            const amount = parseInt(document.getElementById('amount').value) || 0;
+            
+            if (!secret || !nullifier) {
+                return alert('Please enter secret and nullifier (or generate random ones)');
+            }
+            
+            try {
+                const result = JSON.parse(generate_commitment(secret, nullifier, amount));
+                document.getElementById('commitment-output').textContent = JSON.stringify(result, null, 2);
+                document.getElementById('commitments').value = result.commitment;
+            } catch (e) {
+                document.getElementById('commitment-output').textContent = `Error: ${e.message}`;
+            }
+        };
+        
+        window.generateProof = async function() {
+            if (!wasmReady) return alert('WASM not ready');
+            
+            const secret = document.getElementById('secret').value;
+            const nullifier = document.getElementById('nullifier').value;
+            const recipient = document.getElementById('recipient').value;
+            const amount = parseInt(document.getElementById('amount').value) || 0;
+            
+            if (!secret || !nullifier || !recipient) {
+                return alert('Please fill in all fields');
+            }
+            
+            const btn = document.getElementById('prove-btn');
+            const output = document.getElementById('proof-output');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Generating proof...';
+            output.textContent = 'Generating Groth16 proof... This may take 10-30 seconds...';
+            
+            // Use setTimeout to allow UI to update
+            setTimeout(() => {
+                try {
+                    const result = JSON.parse(generate_withdrawal_proof(secret, nullifier, recipient, amount));
+                    
+                    if (result.error) {
+                        output.textContent = `Error: ${result.error}`;
+                    } else {
+                        output.textContent = JSON.stringify(result, null, 2);
+                        
+                        document.getElementById('stats').style.display = 'grid';
+                        document.getElementById('proof-time').textContent = `${(result.time_ms / 1000).toFixed(2)}s`;
+                        document.getElementById('proof-size').textContent = '256 B';
+                        document.getElementById('proof-status').textContent = '✅';
+                    }
+                } catch (e) {
+                    output.textContent = `Error: ${e.message}`;
+                }
+                
+                btn.disabled = false;
+                btn.innerHTML = '🔐 Generate Withdrawal Proof';
+            }, 100);
+        };
+        
+        window.buildMerkleTree = function() {
+            if (!wasmReady) return alert('WASM not ready');
+            
+            const commitments = document.getElementById('commitments').value;
+            const leafIndex = parseInt(document.getElementById('leaf-index').value) || 0;
+            
+            if (!commitments) {
+                return alert('Please enter at least one commitment');
+            }
+            
+            try {
+                const result = JSON.parse(build_merkle_tree(commitments, leafIndex));
+                document.getElementById('merkle-output').textContent = JSON.stringify(result, null, 2);
+            } catch (e) {
+                document.getElementById('merkle-output').textContent = `Error: ${e.message}`;
+            }
+        };
+        
+        initWasm();
+    </script>
+</body>
+</html>
+
+

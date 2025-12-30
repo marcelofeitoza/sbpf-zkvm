@@ -1,0 +1,29 @@
+[package]
+name = "trace-exporter"
+version = "0.1.0"
+edition = "2021"
+description = "Export execution traces from real Solana BPF programs"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "trace-exporter"
+path = "src/main.rs"
+
+[dependencies]
+# Local crates
+trace-core = { path = "../trace-core" }
+bpf-tracer = { path = "../bpf-tracer" }
+
+# Solana types
+solana-pubkey = { version = "4.0.0" }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+

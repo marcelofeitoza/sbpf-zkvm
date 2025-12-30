@@ -3,11 +3,19 @@ members = [
     "bpf-tracer",
     "zk-circuits",
     "prover",
+    "trace-core",
+    "trace-exporter",
 ]
-# Excluded: counter-program (BPF target), wasm-prover (WASM target)
+# Excluded from main workspace:
+# - counter-program (BPF target)
+# - wasm-prover (WASM target)
+# - on-chain-verifier (BPF target)
+# - cloak-mpc-prototype/* (separate workspace)
 exclude = [
     "examples/counter-program",
     "wasm-prover",
+    "on-chain-verifier",
+    "cloak-mpc-prototype",
 ]
 resolver = "2"
 

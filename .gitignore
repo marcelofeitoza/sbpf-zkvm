@@ -26,3 +26,5 @@ Thumbs.db
 .beads/*.db
 .beads/*.db-*
 .cache/
+cloak-mpc-prototype/privacy-pool-demo/.next/
+cloak-mpc-prototype/privacy-pool-demo/node_modules/

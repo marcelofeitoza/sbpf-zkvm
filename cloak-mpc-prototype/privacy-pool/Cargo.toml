@@ -1,0 +1,68 @@
+[package]
+name = "privacy-pool"
+version = "0.1.0"
+edition = "2021"
+description = "Privacy-preserving SOL pool using Groth16 proofs (Cloak-style)"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+no-entrypoint = []
+
+[dependencies]
+# Solana program framework
+pinocchio = "0.9"
+five8_const = "0.1"
+
+# Groth16 verification
+groth16-solana = "0.2"
+solana-bn254 = "=3.1.2"
+
+# Merkle tree (no-std compatible)
+no-std-svm-merkle-tree = { path = "../no-std-svm-merkle-tree", default-features = false, features = ["sha2"] }
+
+# SHA256 hashing (no-std)
+solana-nostd-sha256 = "0.1"
+
+# Serialization
+borsh = { version = "1.6", features = ["derive"] }
+
+# Hashing (Poseidon for ZK-friendly hashing)
+# We'll use a simplified hash for the demo
+
+[dev-dependencies]
+# Proof generation
+ark-bn254 = "0.4"
+ark-ff = "0.4"
+ark-serialize = "0.4"
+ark-groth16 = "0.4"
+ark-relations = "0.4"
+ark-r1cs-std = "0.4"
+ark-std = "0.4"
+ark-snark = "0.4"
+ark-crypto-primitives = { version = "0.4", features = ["r1cs"] }
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+
+# Solana testing
+solana-sdk = "=2.3.1"
+solana-client = "2.3"
+tokio = { version = "1.44", features = ["full"] }
+serde_json = "1.0"
+
+# Also use merkle tree library in tests
+no-std-svm-merkle-tree = { path = "../no-std-svm-merkle-tree", features = ["sha2"] }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1
+
