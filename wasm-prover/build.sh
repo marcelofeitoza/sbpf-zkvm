@@ -25,3 +25,4 @@ echo "  # Open http://localhost:8080"
 echo ""
 echo "Or with any static file server that supports WASM MIME type."
 
+

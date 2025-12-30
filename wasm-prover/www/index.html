@@ -46,7 +46,7 @@
         
         header {
             text-align: center;
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
         }
         
         h1 {
@@ -80,33 +80,44 @@
             margin-bottom: 1rem;
         }
         
-        .input-group {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
+        /* File Drop Zone */
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
         }
         
-        label {
-            font-size: 0.85rem;
-            color: var(--text-dim);
-            white-space: nowrap;
-        }
-        
-        input[type="number"] {
-            flex: 1;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 0.75rem 1rem;
-            color: var(--text);
-            font-family: inherit;
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        
-        input[type="number"]:focus {
+        .drop-zone:hover, .drop-zone.dragover {
             border-color: var(--accent);
+            background: rgba(0, 217, 255, 0.05);
+        }
+        
+        .drop-zone.has-file {
+            border-color: var(--success);
+            background: rgba(0, 255, 136, 0.05);
+        }
+        
+        .drop-zone-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .drop-zone-text {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+        
+        .drop-zone-filename {
+            color: var(--success);
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        input[type="file"] {
+            display: none;
         }
         
         .button-group {
@@ -281,6 +292,57 @@
             color: var(--text-dim);
             line-height: 1.5;
         }
+        
+        .trace-info {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            display: none;
+        }
+        
+        .trace-info.visible {
+            display: block;
+        }
+        
+        .trace-info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            padding: 0.25rem 0;
+        }
+        
+        .trace-info-label {
+            color: var(--text-dim);
+        }
+        
+        .trace-info-value {
+            color: var(--text);
+        }
+        
+        .workflow-steps {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.75rem;
+        }
+        
+        .workflow-step {
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            color: var(--text-dim);
+        }
+        
+        .workflow-step.active {
+            background: rgba(0, 217, 255, 0.1);
+            color: var(--accent);
+        }
+        
+        .workflow-step.complete {
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--success);
+        }
     </style>
 </head>
 <body>
@@ -290,14 +352,56 @@
             <p class="subtitle">Client-side zero-knowledge proof generation</p>
         </header>
         
+        <div class="workflow-steps">
+            <div id="step1" class="workflow-step active">1. Load Trace</div>
+            <div id="step2" class="workflow-step">2. Generate Proof</div>
+            <div id="step3" class="workflow-step">3. Verify</div>
+        </div>
+        
         <div class="card">
-            <div class="card-title">Counter Program Input</div>
-            <div class="input-group">
-                <label for="initialValue">Initial Value:</label>
-                <input type="number" id="initialValue" value="42" min="0">
+            <div class="card-title">Load Execution Trace</div>
+            <div id="dropZone" class="drop-zone">
+                <div class="drop-zone-icon">📂</div>
+                <div class="drop-zone-text">
+                    Drop a .trace file here or click to browse
+                </div>
+                <div id="fileName" class="drop-zone-filename"></div>
             </div>
+            <input type="file" id="fileInput" accept=".trace">
+            
+            <div id="traceInfo" class="trace-info">
+                <div class="trace-info-row">
+                    <span class="trace-info-label">Total Steps:</span>
+                    <span id="traceSteps" class="trace-info-value">-</span>
+                </div>
+                <div class="trace-info-row">
+                    <span class="trace-info-label">Instructions:</span>
+                    <span id="traceInstructions" class="trace-info-value">-</span>
+                </div>
+                <div class="trace-info-row">
+                    <span class="trace-info-label">Syscalls:</span>
+                    <span id="traceSyscalls" class="trace-info-value">-</span>
+                </div>
+                <div class="trace-info-row">
+                    <span class="trace-info-label">Syscall Whitelist:</span>
+                    <span id="traceSyscallWhitelist" class="trace-info-value">-</span>
+                </div>
+                <div class="trace-info-row">
+                    <span class="trace-info-label">Initial r0:</span>
+                    <span id="traceInitialR0" class="trace-info-value">-</span>
+                </div>
+                <div class="trace-info-row">
+                    <span class="trace-info-label">Final r0:</span>
+                    <span id="traceFinalR0" class="trace-info-value">-</span>
+                </div>
+                <div class="trace-info-row">
+                    <span class="trace-info-label">Validation:</span>
+                    <span id="traceValidation" class="trace-info-value">-</span>
+                </div>
+            </div>
+            
             <div class="button-group">
-                <button id="proveBtn" class="btn-primary">Generate Proof</button>
+                <button id="proveBtn" class="btn-primary" disabled>Generate Proof</button>
                 <button id="verifyBtn" class="btn-secondary" disabled>Verify Proof</button>
             </div>
         </div>
@@ -318,7 +422,7 @@
                 <span id="provingTime" class="result-value">-</span>
             </div>
             <div class="result-row">
-                <span class="result-label">Instructions Traced</span>
+                <span class="result-label">Instructions</span>
                 <span id="instructionCount" class="result-value">-</span>
             </div>
             <div class="result-row">
@@ -337,14 +441,27 @@
             <h4>🛡️ Privacy Guarantee</h4>
             <p>
                 All computation happens locally in your browser using WebAssembly.
-                The execution trace and witness data never leave your device.
+                The execution trace is read from a local file and never sent to any server.
                 Only the zero-knowledge proof (which reveals nothing about the execution) 
                 can be shared or verified externally.
             </p>
         </div>
         
+        <div class="security-note" style="background: rgba(255, 170, 0, 0.05); border-color: rgba(255, 170, 0, 0.2);">
+            <h4 style="color: var(--warning);">⚠️ What This Proof Does NOT Guarantee</h4>
+            <p>
+                This proof verifies execution trace consistency. It does <strong>not</strong> prove:
+                counter value changes, account state commitments, instruction semantics,
+                or memory consistency. Only that a sequence of instructions was executed
+                and syscalls returned 0 with preserved registers.
+            </p>
+        </div>
+        
         <footer>
             <p>
+                Generate traces with: <code>cargo run -p trace-exporter -- --out counter.trace</code>
+            </p>
+            <p style="margin-top: 0.5rem;">
                 Powered by <a href="https://github.com/privacy-scaling-explorations/halo2">Halo2</a> |
                 Built with Rust + WebAssembly
             </p>
@@ -354,4 +471,3 @@
     <script type="module" src="./main.js"></script>
 </body>
 </html>
-

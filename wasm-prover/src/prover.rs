@@ -1,8 +1,9 @@
 //! Proof Generation and Verification
 //!
 //! Single-threaded Halo2 proof generation for WASM.
+//! Supports traces with both instructions and syscalls.
 
-use crate::trace::ExecutionTrace;
+use trace_core::ExecutionTrace;
 use crate::circuit::CounterCircuit;
 use crate::keys::{get_params, get_proving_key, get_verifying_key};
 use halo2_axiom::{
@@ -25,7 +26,16 @@ use sha2::{Sha256, Digest};
 
 /// Create a proof for the given execution trace
 pub fn create_proof(trace: &ExecutionTrace) -> Result<Vec<u8>, String> {
-    tracing::info!("Creating proof for {} instructions", trace.instructions.len());
+    tracing::info!(
+        "Creating proof for {} steps ({} instructions, {} syscalls)", 
+        trace.step_count(),
+        trace.instruction_count(),
+        trace.syscall_count()
+    );
+    
+    // Validate trace before proving
+    trace.validate()
+        .map_err(|e| format!("Trace validation failed: {}", e))?;
     
     // Get keys (generates if needed - cached for subsequent calls)
     let params = get_params();
@@ -59,12 +69,8 @@ pub fn create_proof(trace: &ExecutionTrace) -> Result<Vec<u8>, String> {
     Ok(proof)
 }
 
-/// Verify a proof
-pub fn verify_proof(
-    proof: &[u8],
-    _initial_value: u64,
-    _final_value: u64,
-) -> Result<bool, String> {
+/// Verify a proof against a trace
+pub fn verify_proof(proof: &[u8], _trace: &ExecutionTrace) -> Result<bool, String> {
     tracing::info!("Verifying proof ({} bytes)", proof.len());
     
     let params = get_params();
@@ -106,7 +112,7 @@ fn compute_trace_hash(trace: &ExecutionTrace) -> [u8; 32] {
         hasher.update(reg.to_le_bytes());
     }
     
-    hasher.update((trace.instructions.len() as u64).to_le_bytes());
+    hasher.update((trace.step_count() as u64).to_le_bytes());
     
     hasher.finalize().into()
 }
@@ -114,16 +120,38 @@ fn compute_trace_hash(trace: &ExecutionTrace) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interpreter::execute_counter;
+    use trace_core::{Step, InstructionTrace, SyscallTrace, SyscallId, RegisterState};
     
     #[test]
-    fn test_create_and_verify_proof() {
-        let trace = execute_counter(42).expect("Execution should succeed");
+    fn test_create_and_verify_proof_with_syscall() {
+        let mut trace = ExecutionTrace::new();
+        trace.initial_registers.regs[0] = 0;
+        trace.initial_registers.regs[2] = 42;
+        
+        // Add instruction
+        trace.steps.push(Step::Instruction(InstructionTrace {
+            pc: 0,
+            instruction_bytes: [0x07, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00],
+            registers_before: RegisterState { regs: [0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+            registers_after: RegisterState { regs: [0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+        }));
+        
+        // Add syscall (sol_log)
+        trace.steps.push(Step::Syscall(SyscallTrace {
+            pc: 1,
+            syscall_id: SyscallId::SolLog,
+            raw_hash: 0x56ffab99,
+            return_value: 0,
+            registers_before: RegisterState { regs: [0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+            registers_after: RegisterState { regs: [0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+        }));
+        
+        trace.final_registers = RegisterState { regs: [0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0] };
         
         let proof = create_proof(&trace).expect("Proof should be created");
         assert!(!proof.is_empty());
         
-        let valid = verify_proof(&proof, 42, 43).expect("Verification should not error");
+        let valid = verify_proof(&proof, &trace).expect("Verification should not error");
         assert!(valid);
     }
 }
